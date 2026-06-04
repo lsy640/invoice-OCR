@@ -1,0 +1,13 @@
+# 后端依赖（Windows / Linux / macOS 通用部分；MLX 见 run_macos_mlx.sh 另装）
+# 注意：GLM-OCR 需 transformers 5.x（4.x 不识别 glm_ocr 架构）
+torch>=2.4
+transformers>=5.0,<6
+accelerate>=1.0
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+pillow>=10.0
+pandas>=2.0
+openpyxl>=3.1
+requests>=2.31
+pyyaml>=6.0

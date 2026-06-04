@@ -1,0 +1,50 @@
+# ==============================================================
+# GLM-OCR 票据/停车识别 — 主配置（所有代码从此文件读取参数）
+# 任务一·发票：实付金额；任务二·停车：进出场时间/时长/单价/车架号/金额/车牌
+# ==============================================================
+
+# ── 数据（任务一·发票）─────────────────────────────────────────
+data:
+  xlsx: "data/发票数据.xlsx"
+  image_dir: "data/images"            # 下载图片缓存
+  records_json: "data/records.json"   # prepare_data.py 产出
+  max_image_long_side: 2048           # 图片长边上限，超过则等比缩小（省显存/token）
+
+# ── 数据（任务二·停车）─────────────────────────────────────────
+parking:
+  xlsx: "data/停车数据.xlsx"
+  image_dir: "data/parking_images"
+  records_json: "data/parking_records.json"
+  pred_jsonl: "results/parking_glm_pred.jsonl"
+  # cost_images 是 ptmapi 代理 URL，对象在公有 OBS 桶，取 id 后直链下载（无需 token）
+  obs_base: "https://obs-prod-biz.obs.cn-east-3.myhuaweicloud.com/changan/"
+
+# ── 路径 ───────────────────────────────────────────────────────
+paths:
+  results_dir: "results"
+  hf_home: "/home/msai/lius0131/.cache/huggingface"   # HF 权重缓存（批处理用；Docker 用 HF_HOME 环境变量）
+
+# ── 模型 ───────────────────────────────────────────────────────
+models:
+  glm-ocr:
+    repo: "zai-org/GLM-OCR"
+    revision: null                    # null=main
+
+# ── 推理 ───────────────────────────────────────────────────────
+inference:
+  max_tokens: 256                     # 只输出小 JSON
+  # 后端：auto|transformers|mlx（环境变量 INFERENCE_BACKEND 可覆盖）
+  # auto = macOS(M系列)+mlx可用→mlx；否则 transformers(有CUDA→GPU，否则CPU)
+  backend: "auto"
+  device: "auto"                      # transformers 设备：auto|cuda|cpu（INFERENCE_DEVICE 可覆盖）
+  mlx_repo: null                      # macOS MLX 权重仓库；null 则用 models.glm-ocr.repo
+
+# ── Web 应用（前后端一体）─────────────────────────────────────────
+app:
+  host: "0.0.0.0"
+  port: 8000
+  max_batch_images: 500               # 单次批量上限（图片张数/Excel行数）
+
+# ── 评测（批处理算准确率用）────────────────────────────────────
+evaluation:
+  amount_tolerance: 0.01              # |pred-标签| <= 0.01 视为金额命中（精确到分）

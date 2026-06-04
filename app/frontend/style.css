@@ -1,0 +1,35 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #f4f6f9; color: #1f2d3d;
+}
+header {
+  display: flex; align-items: center; gap: 12px;
+  background: #305496; color: #fff; padding: 14px 24px;
+}
+header h1 { font-size: 18px; margin: 0; }
+.badge { margin-left: auto; font-size: 12px; background: rgba(255,255,255,.18); padding: 4px 10px; border-radius: 12px; }
+main { max-width: 1100px; margin: 18px auto; padding: 0 16px; }
+.card { background: #fff; border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.seg { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 8px 12px; border: 1px solid #d6dbe3; border-radius: 8px; }
+.seg input { accent-color: #305496; }
+.hint { color: #6b7686; font-size: 13px; margin: 8px 0 0; }
+.tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.tab { border: 1px solid #d6dbe3; background: #fff; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.tab.active { background: #305496; color: #fff; border-color: #305496; }
+.pane.hidden, .hidden { display: none; }
+textarea, input[type=file] { width: 100%; border: 1px solid #d6dbe3; border-radius: 8px; padding: 10px; font-size: 14px; }
+.actions { margin-top: 14px; }
+button.primary { background: #305496; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+button.ghost { background: #fff; border: 1px solid #305496; color: #305496; padding: 10px 18px; border-radius: 8px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.status { color: #6b7686; font-size: 13px; }
+.banner { background: #fdecea; color: #b71c1c; border: 1px solid #f5c6cb; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border: 1px solid #e3e8ef; padding: 7px 10px; text-align: left; white-space: nowrap; }
+th { background: #305496; color: #fff; position: sticky; top: 0; }
+tr.row-miss td { background: #fdecea; }
+td.miss { color: #b71c1c; font-weight: 700; text-align: center; }
+td.ok { color: #2e7d32; font-weight: 700; text-align: center; }

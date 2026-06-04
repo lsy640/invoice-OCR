@@ -1,0 +1,8 @@
+# 批处理/评测依赖（conda env `env`：transformers 5.x + torch 已提供，此处不重复）
+# Web 应用的依赖另见 app/requirements-backend.txt
+pyyaml>=6.0
+pillow>=10.0
+tqdm>=4.66
+pandas>=2.0
+openpyxl>=3.1
+requests>=2.31

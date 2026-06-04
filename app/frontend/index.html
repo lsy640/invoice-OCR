@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GLM-OCR 票据 / 停车识别</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>GLM-OCR 识别</h1>
+    <span id="backend-badge" class="badge">后端：…</span>
+  </header>
+
+  <main>
+    <!-- 功能选择 -->
+    <section class="card">
+      <div class="row">
+        <label class="seg">
+          <input type="radio" name="task" value="invoice" checked>
+          <span>发票 / 支付凭证（实付金额）</span>
+        </label>
+        <label class="seg">
+          <input type="radio" name="task" value="parking">
+          <span>停车信息（时间 / 时长 / 单价 / 车架号 / 金额）</span>
+        </label>
+      </div>
+      <p id="task-hint" class="hint"></p>
+    </section>
+
+    <!-- 输入方式 -->
+    <section class="card">
+      <div class="tabs">
+        <button class="tab active" data-mode="images">① 上传图片</button>
+        <button class="tab" data-mode="urls">② 图片直链 URL</button>
+        <button class="tab" data-mode="excel">③ 上传 Excel</button>
+      </div>
+
+      <div class="pane" data-pane="images">
+        <input type="file" id="imgs" accept="image/*" multiple>
+        <p class="hint" id="images-hint"></p>
+      </div>
+      <div class="pane hidden" data-pane="urls">
+        <textarea id="urls" rows="6" placeholder="每行一个图片直链 URL（支持 ptmapi 代理链，自动转 OBS 直链）"></textarea>
+      </div>
+      <div class="pane hidden" data-pane="excel">
+        <input type="file" id="excel" accept=".xlsx,.xls">
+        <p class="hint" id="excel-hint"></p>
+      </div>
+
+      <div class="row actions">
+        <button id="run" class="primary">开始识别</button>
+        <button id="export" class="ghost" disabled>导出 Excel</button>
+        <span id="status" class="status"></span>
+      </div>
+    </section>
+
+    <!-- 结果 -->
+    <section class="card">
+      <div id="banner" class="banner hidden"></div>
+      <div class="table-wrap">
+        <table id="result-table"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

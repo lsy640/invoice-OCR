@@ -1,0 +1,10 @@
+**/__pycache__/
+**/*.pyc
+data/
+results/
+.cache/
+.git/
+*.xlsx
+*.jsonl
+.claude/
+app/frontend/node_modules/

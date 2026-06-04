@@ -1,0 +1,18 @@
+# 机密：绝不提交（含明文账号密码）
+get_token.txt
+
+# 业务数据与产物（真实 VIN/金额/私有OBS链接 + 大体积缓存，不入库）
+data/
+results/
+
+# Python / 运行时
+__pycache__/
+*.pyc
+.venv/
+.venv-app/
+.venv-mlx/
+models/
+*.nfs*
+
+# 系统
+.DS_Store

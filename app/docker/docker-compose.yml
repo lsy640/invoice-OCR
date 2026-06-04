@@ -1,0 +1,30 @@
+# 用法（在 OCR/app/docker 目录下）：
+#   docker compose up --build          # CPU
+#   GPU：先装 NVIDIA Container Toolkit，再取消下方 deploy 段注释后 up
+# 首次启动会联网下载 GLM-OCR 权重(~1.8GB)到命名卷 glmocr-models，之后离线可用。
+services:
+  glmocr:
+    build:
+      context: ../..                 # 仓库根目录 OCR/
+      dockerfile: app/docker/Dockerfile
+    image: glmocr-app:latest
+    container_name: glmocr-app
+    ports:
+      - "8000:8000"
+    environment:
+      - INFERENCE_BACKEND=auto       # auto/transformers；GPU 与否由容器内 torch 自动判断
+      - HF_HOME=/models
+    volumes:
+      - glmocr-models:/models        # HF 权重缓存（持久化，避免每次重下）
+    restart: unless-stopped
+    # ── 启用 NVIDIA GPU（需 NVIDIA Container Toolkit）：取消以下注释 ──
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+volumes:
+  glmocr-models:

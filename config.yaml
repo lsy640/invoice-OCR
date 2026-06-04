@@ -37,7 +37,7 @@ inference:
   # auto = macOS(M系列)+mlx可用→mlx；否则 transformers(有CUDA→GPU，否则CPU)
   backend: "auto"
   device: "auto"                      # transformers 设备：auto|cuda|cpu（INFERENCE_DEVICE 可覆盖）
-  mlx_repo: null                      # macOS MLX 权重仓库；null 则用 models.glm-ocr.repo
+  mlx_repo: "./models/GLM-OCR-mlx-4bit"  # macOS MLX 4-bit 量化权重
 
 # ── Web 应用（前后端一体）─────────────────────────────────────────
 app:

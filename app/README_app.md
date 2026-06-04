@@ -5,10 +5,10 @@
 1. **发票 / 支付凭证 → 实付金额**（每张图独立）
 2. **停车信息**：进出场时间、停车时长、单价(元/小时)、车架号、缴费金额、车牌（一组图=一次停车；电子发票优先以备注的停车时间为准）
 
-输入方式：① 上传图片 ② 图片直链 URL ③ 上传 Excel（图片 URL 为直链）。支持单条/批量、导出 Excel；
+输入方式：① 上传图片 ② 图片直链 URL ③ 上传 Excel（图片 URL 为直链）。支持单条/批量；
 **Excel 含原始金额(supply_money/cost)时，识别值与原值不一致的行自动标红提示。**
 
-后端跨平台：**Windows 有 NVIDIA 用 GPU、否则 CPU；macOS（M 系列）用 MLX 加速。**
+后端跨平台：**Windows 有 NVIDIA 用 GPU、否则 CPU；macOS（M 系列）用 MLX 加速（支持 4-bit 量化）。**
 
 ---
 
@@ -49,9 +49,21 @@ docker compose up --build            # CPU；或启用 GPU 见下
 bash app/scripts/run_macos_mlx.sh    # 自动建 venv、装 mlx-vlm、以 MLX 后端启动
 ```
 
-- 若 `mlx-community` 无现成 GLM-OCR MLX 权重，先转换：
-  `python -m mlx_vlm.convert --hf-path zai-org/GLM-OCR -q --mlx-path ./models/GLM-OCR-mlx`，
-  并在 `config.yaml` 设 `inference.mlx_repo: "./models/GLM-OCR-mlx"`。
+**MLX 4-bit 量化加速**（推荐）：
+
+```bash
+# 将 GLM-OCR 转为 4-bit MLX 量化格式（体积 2.5GB → 1.2GB，推理提速 2-3x）
+.venv-mlx/bin/python -m mlx_vlm.convert \
+  --hf-path zai-org/GLM-OCR -q --q-bits 4 \
+  --mlx-path ./models/GLM-OCR-mlx-4bit --trust-remote-code
+```
+
+然后在 `config.yaml` 中设置：
+```yaml
+inference:
+  mlx_repo: "./models/GLM-OCR-mlx-4bit"
+```
+
 - **若 mlx-vlm 尚不支持 GlmOcr 架构**，后端会自动回退 `transformers`(CPU)；可临时
   `INFERENCE_BACKEND=transformers bash app/scripts/run_local.sh` 走 CPU。
 
@@ -73,10 +85,20 @@ python -m venv .venv-app
 ## 五、使用说明
 
 1. 顶部选择功能（发票实付金额 / 停车信息）。
-2. 选输入方式并提供数据 → 点「开始识别」→ 结果表格展示。
-3. 「导出 Excel」下载结果；不匹配行已标红。
+2. 选输入方式并提供数据 → 点「开始识别」→ 结果展示。
+3. 各表格均可独立「导出 Excel」下载对应数据；不匹配行已标红。
 
-**Excel 列约定**
+### 异常数据面板
+
+识别完成后，异常数据会**优先展示在全部结果表上方**，便于快速定位问题：
+
+- **金额/车架号不匹配**：当 Excel 提供了标签数据（supply_money / cost / vin）时，识别值与标签不一致的记录会在独立的红色面板中汇总展示，支持单独导出。
+- **停车费异常**（仅停车任务）：计算出的每小时停车单价超过 **25 元/小时** 或低于 **0.1 元/小时** 的记录会在独立的橙色面板中展示，并标注异常原因（单价过高/过低），支持单独导出。
+- 页面顶部的**概览条**以标签形式汇总：总条数、匹配数、不匹配数、费用异常数。
+- 所有异常面板均可**折叠/展开**，不影响浏览全部数据。
+
+### Excel 列约定
+
 - 发票：必含 `pic_url`（图片直链）；可选 `supply_money`（原始金额，用于比对）。
 - 停车：必含 `cost_images`（**逗号分隔**的图片直链）；可选 `cost`、`vin`（用于比对）。
 - 图片直链：若是 `ptmapi.cacxtravel.com/.../obs/download/<id>.jpg` 代理链，后端会**自动替换为公有 OBS 直链**下载（无需 token）。
@@ -89,7 +111,7 @@ python -m venv .venv-app
 |---|---|
 | `GET /api/health` | 健康检查 + 当前后端(transformers/mlx) |
 | `POST /api/recognize` | multipart：`task=invoice\|parking`、`mode=images\|urls\|excel`、`files[]`/`urls`/`excel` |
-| `POST /api/export` | JSON `{task, results, columns}` → 返回高亮 .xlsx |
+| `POST /api/export` | JSON `{task, results, columns}` → 返回高亮 .xlsx（支持自定义列，异常表导出也使用此接口） |
 | `GET /` | 前端页面 |
 
 `curl` 示例：
@@ -105,7 +127,7 @@ curl -F task=invoice -F mode=urls -F 'urls=https://.../a.png' http://localhost:8
 inference:
   backend: auto        # auto|transformers|mlx（环境变量 INFERENCE_BACKEND 可覆盖）
   device:  auto        # transformers 设备 auto|cuda|cpu（INFERENCE_DEVICE 可覆盖）
-  mlx_repo: null       # macOS MLX 权重仓库；null=用 models.glm-ocr.repo
+  mlx_repo: "./models/GLM-OCR-mlx-4bit"  # macOS MLX 4-bit 量化权重路径；null=用原始 HF 权重
 app:
   host: 0.0.0.0
   port: 8000
@@ -124,8 +146,11 @@ models:
                                    ├─ ParkingPipeline(src/parking_pipeline.py)   逐图KIE+发票二次OCR+聚合
                                    └─ InferenceBackend(src/inference.py)
                                         ├─ TransformersBackend  (Win NVIDIA→CUDA / CPU; Linux)
-                                        └─ MLXBackend           (macOS Apple Silicon)
+                                        └─ MLXBackend           (macOS Apple Silicon, 支持4-bit量化)
 ```
+
+前端结果展示层级：概览条 → 异常面板(不匹配/费用异常) → 全部结果表，各层均可独立导出 Excel。
+
 推理逻辑/解析/聚合与命令行批处理(`src/parking_*`)**同一套代码**（`record_from_kie`/`aggregate_group`）。
 
 ## 九、排错
@@ -133,3 +158,4 @@ models:
 - **GPU 没用上**：确认 NVIDIA 驱动 + Container Toolkit，且 compose 的 `deploy` 段已启用；`docker logs glmocr-app` 看是否 `device=cuda`。
 - **transformers 报不识别 glm_ocr**：transformers 必须 ≥5.0（requirements 已约束）。
 - **mac 上 MLX 失败**：见第三节，回退 transformers-CPU。
+- **mac 推理慢**：确认已使用 4-bit 量化权重（见第三节），量化后推理速度提升 2-3x。

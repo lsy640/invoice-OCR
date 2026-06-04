@@ -50,14 +50,55 @@
 
       <div class="row actions">
         <button id="run" class="primary">开始识别</button>
-        <button id="export" class="ghost" disabled>导出 Excel</button>
         <span id="status" class="status"></span>
       </div>
     </section>
 
-    <!-- 结果 -->
+    <!-- 结果概览 -->
+    <section id="summary-section" class="card hidden">
+      <div id="summary-bar" class="summary-bar"></div>
+    </section>
+
+    <!-- 异常面板：金额不匹配 -->
+    <section id="mismatch-section" class="card anomaly-card hidden">
+      <div class="anomaly-header anomaly-header--mismatch">
+        <span class="anomaly-icon">&#9888;</span>
+        <h3>金额/车架号不匹配</h3>
+        <span id="mismatch-count" class="anomaly-count"></span>
+        <button id="export-mismatch" class="export-btn export-btn--anomaly">导出 Excel</button>
+        <button class="anomaly-toggle" data-target="mismatch-body">收起</button>
+      </div>
+      <div id="mismatch-body" class="anomaly-body">
+        <div class="table-wrap">
+          <table id="mismatch-table"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 异常面板：停车费异常 -->
+    <section id="parking-anomaly-section" class="card anomaly-card hidden">
+      <div class="anomaly-header anomaly-header--parking">
+        <span class="anomaly-icon">&#9881;</span>
+        <h3>停车费异常</h3>
+        <span id="parking-anomaly-count" class="anomaly-count"></span>
+        <button id="export-parking-anomaly" class="export-btn export-btn--anomaly">导出 Excel</button>
+        <button class="anomaly-toggle" data-target="parking-anomaly-body">收起</button>
+      </div>
+      <p class="anomaly-desc">单价 &gt; 25 元/小时 或 &lt; 0.1 元/小时的记录</p>
+      <div id="parking-anomaly-body" class="anomaly-body">
+        <div class="table-wrap">
+          <table id="parking-anomaly-table"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 主结果表 -->
     <section class="card">
       <div id="banner" class="banner hidden"></div>
+      <div class="table-header-row">
+        <h3 class="table-title">全部识别结果</h3>
+        <button id="export-main" class="export-btn" disabled>导出 Excel</button>
+      </div>
       <div class="table-wrap">
         <table id="result-table"><thead></thead><tbody></tbody></table>
       </div>

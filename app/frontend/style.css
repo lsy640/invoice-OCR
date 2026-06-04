@@ -33,3 +33,91 @@ th { background: #305496; color: #fff; position: sticky; top: 0; }
 tr.row-miss td { background: #fdecea; }
 td.miss { color: #b71c1c; font-weight: 700; text-align: center; }
 td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
+
+/* ── 表格标题行 ─────────────────────────────────────────── */
+.table-header-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.table-title { margin: 0; font-size: 15px; color: #1f2d3d; }
+
+/* ── 导出按钮 ───────────────────────────────────────────── */
+.export-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fff; border: 1px solid #305496; color: #305496;
+  padding: 5px 14px; border-radius: 6px; font-size: 12px;
+  cursor: pointer; white-space: nowrap; transition: all .15s;
+}
+.export-btn:hover { background: #305496; color: #fff; }
+.export-btn:disabled { opacity: .4; cursor: not-allowed; background: #fff; color: #305496; }
+.export-btn--anomaly { border-color: #888; color: #555; }
+.export-btn--anomaly:hover { background: #555; color: #fff; border-color: #555; }
+
+/* ── 结果概览条 ─────────────────────────────────────────── */
+.summary-bar {
+  display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
+  padding: 4px 0;
+}
+.summary-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+}
+.chip-total  { background: #e8edf3; color: #305496; }
+.chip-ok     { background: #e8f5e9; color: #2e7d32; }
+.chip-miss   { background: #fdecea; color: #b71c1c; }
+.chip-warn   { background: #fff8e1; color: #e65100; }
+
+/* ── 异常面板 ───────────────────────────────────────────── */
+.anomaly-card { border-left: 4px solid transparent; }
+.anomaly-card:has(.anomaly-header--mismatch) { border-left-color: #e53935; }
+.anomaly-card:has(.anomaly-header--parking)  { border-left-color: #e65100; }
+
+.anomaly-header {
+  display: flex; align-items: center; gap: 10px;
+  padding-bottom: 10px; border-bottom: 1px solid #f0f0f0;
+}
+.anomaly-header h3 { margin: 0; font-size: 15px; }
+.anomaly-icon { font-size: 20px; line-height: 1; }
+.anomaly-header--mismatch .anomaly-icon { color: #e53935; }
+.anomaly-header--mismatch h3 { color: #c62828; }
+.anomaly-header--parking .anomaly-icon  { color: #e65100; }
+.anomaly-header--parking h3  { color: #bf360c; }
+
+.anomaly-count {
+  margin-left: auto; font-size: 12px; font-weight: 700;
+  padding: 3px 10px; border-radius: 12px;
+}
+.anomaly-header--mismatch .anomaly-count { background: #fdecea; color: #c62828; }
+.anomaly-header--parking  .anomaly-count { background: #fff3e0; color: #e65100; }
+
+.anomaly-toggle {
+  background: none; border: 1px solid #d6dbe3; border-radius: 6px;
+  padding: 4px 12px; font-size: 12px; cursor: pointer; color: #6b7686;
+}
+.anomaly-toggle:hover { background: #f4f6f9; }
+
+.anomaly-desc {
+  color: #8d6e00; font-size: 12px; margin: 8px 0 4px;
+  padding: 6px 10px; background: #fffde7; border-radius: 6px;
+}
+.anomaly-body { margin-top: 12px; }
+.anomaly-body.collapsed { display: none; }
+
+/* 异常表格 */
+.anomaly-card table th {
+  background: #f5f5f5; color: #333; font-weight: 600;
+}
+.anomaly-header--mismatch ~ .anomaly-body table th,
+.anomaly-header--mismatch ~ .anomaly-desc + .anomaly-body table th { background: #fce4ec; color: #b71c1c; }
+.anomaly-header--parking ~ .anomaly-body table th,
+.anomaly-header--parking ~ .anomaly-desc + .anomaly-body table th  { background: #fff3e0; color: #e65100; }
+
+.anomaly-card table tr:hover td { background: #fafafa; }
+
+/* 异常原因标签 */
+.reason-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.reason-tag--high { background: #fdecea; color: #c62828; }
+.reason-tag--low  { background: #fff8e1; color: #e65100; }

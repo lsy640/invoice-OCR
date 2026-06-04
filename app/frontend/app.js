@@ -4,7 +4,8 @@ const $$ = (s) => document.querySelectorAll(s);
 
 let currentMode = "images";
 let lastResults = null;     // {task, columns, results}
-let lastMismatch = null;    // {task, columns, results} for mismatch subset
+let lastAmountMismatch = null;  // {task, columns, results} for amount mismatch
+let lastVinMismatch = null;     // {task, columns, results} for VIN mismatch
 let lastParkingAnomaly = null; // {task, columns, results} for parking fee anomaly subset
 
 const HINTS = {
@@ -115,11 +116,17 @@ $("#export-main").addEventListener("click", () => {
   exportToExcel(lastResults, name);
 });
 
-// 不匹配数据导出
-$("#export-mismatch").addEventListener("click", () => {
-  if (!lastMismatch) return;
-  const name = (lastMismatch.task === "invoice" ? "发票" : "停车") + "识别结果_不匹配.xlsx";
-  exportToExcel(lastMismatch, name);
+// 金额不匹配导出
+$("#export-amount-mismatch").addEventListener("click", () => {
+  if (!lastAmountMismatch) return;
+  const name = (lastAmountMismatch.task === "invoice" ? "发票" : "停车") + "识别结果_金额不匹配.xlsx";
+  exportToExcel(lastAmountMismatch, name);
+});
+
+// 车架号不匹配导出
+$("#export-vin-mismatch").addEventListener("click", () => {
+  if (!lastVinMismatch) return;
+  exportToExcel(lastVinMismatch, "停车识别结果_车架号不匹配.xlsx");
 });
 
 // 停车费异常导出
@@ -132,7 +139,8 @@ $("#export-parking-anomaly").addEventListener("click", () => {
 function renderAll(j) {
   renderTable(j);
   renderSummary(j);
-  renderMismatch(j);
+  renderAmountMismatch(j);
+  renderVinMismatch(j);
   renderParkingAnomaly(j);
 }
 
@@ -143,12 +151,14 @@ function renderSummary(j) {
   const total = j.results.length;
   if (!total) { sec.classList.add("hidden"); return; }
 
-  const mismatch = j.results.filter(r => r.amount_match === "✗" || r.vin_match === "✗");
-  const matched  = j.results.filter(r => r.amount_match === "✓" || r.vin_match === "✓");
+  const amtMiss = j.results.filter(r => r.amount_match === "✗");
+  const vinMiss = j.results.filter(r => r.vin_match === "✗");
+  const matched = j.results.filter(r => r.amount_match === "✓" || r.vin_match === "✓");
 
   let html = `<span class="summary-chip chip-total">共 ${total} 条</span>`;
   if (matched.length)  html += `<span class="summary-chip chip-ok">匹配 ${matched.length}</span>`;
-  if (mismatch.length) html += `<span class="summary-chip chip-miss">不匹配 ${mismatch.length}</span>`;
+  if (amtMiss.length)  html += `<span class="summary-chip chip-miss">金额不匹配 ${amtMiss.length}</span>`;
+  if (vinMiss.length)  html += `<span class="summary-chip chip-vin">VIN不匹配 ${vinMiss.length}</span>`;
 
   if (j.task === "parking") {
     const anomalies = getParkingAnomalies(j.results);
@@ -186,40 +196,73 @@ function renderTable(j) {
   $("#export-main").disabled = j.results.length === 0;
 }
 
-// ── 异常面板：金额/车架号不匹配 ─────────────────────────
-function renderMismatch(j) {
-  const sec = $("#mismatch-section");
-  const rows = j.results.filter(r => r.amount_match === "✗" || r.vin_match === "✗");
+// ── 异常面板：金额不匹配 ─────────────────────────────────
+function renderAmountMismatch(j) {
+  const sec = $("#amount-mismatch-section");
+  const rows = j.results.filter(r => r.amount_match === "✗");
   if (!rows.length) {
     sec.classList.add("hidden");
-    lastMismatch = null;
+    lastAmountMismatch = null;
     return;
   }
 
-  $("#mismatch-count").textContent = `${rows.length} 条`;
+  $("#amount-mismatch-count").textContent = `${rows.length} 条`;
 
   const cols = j.task === "invoice"
     ? ["source", "pred_amount", "label", "amount_match", "error"]
-    : ["source", "cost", "payment_amount", "amount_match", "vin_label", "vin_detected", "vin_match", "error"];
+    : ["source", "cost", "payment_amount", "amount_match", "error"];
   const usedCols = cols.filter(c => rows.some(r => r[c] !== undefined && r[c] !== null && r[c] !== ""));
 
-  lastMismatch = { task: j.task, columns: usedCols, results: rows };
+  lastAmountMismatch = { task: j.task, columns: usedCols, results: rows };
 
-  const thead = $("#mismatch-table thead");
-  const tbody = $("#mismatch-table tbody");
+  const thead = $("#amount-mismatch-table thead");
+  const tbody = $("#amount-mismatch-table tbody");
   thead.innerHTML = "<tr>" + usedCols.map(c => `<th>${colLabel(c)}</th>`).join("") + "</tr>";
   tbody.innerHTML = rows.map(row => {
     const tds = usedCols.map(c => {
       let v = row[c]; v = (v === null || v === undefined) ? "" : v;
-      const cls = ((c === "amount_match" || c === "vin_match") && v === "✗") ? "miss"
-        : ((c === "amount_match" || c === "vin_match") && v === "✓") ? "ok" : "";
+      const cls = (c === "amount_match" && v === "✗") ? "miss" : (c === "amount_match" && v === "✓") ? "ok" : "";
       return `<td class="${cls}">${String(v)}</td>`;
     }).join("");
     return `<tr>${tds}</tr>`;
   }).join("");
 
-  $("#mismatch-body").classList.remove("collapsed");
-  $('[data-target="mismatch-body"]').textContent = "收起";
+  $("#amount-mismatch-body").classList.remove("collapsed");
+  $('[data-target="amount-mismatch-body"]').textContent = "收起";
+  sec.classList.remove("hidden");
+}
+
+// ── 异常面板：车架号不匹配 ───────────────────────────────
+function renderVinMismatch(j) {
+  const sec = $("#vin-mismatch-section");
+  const rows = j.results.filter(r => r.vin_match === "✗");
+  if (!rows.length || j.task === "invoice") {
+    sec.classList.add("hidden");
+    lastVinMismatch = null;
+    return;
+  }
+
+  $("#vin-mismatch-count").textContent = `${rows.length} 条`;
+
+  const cols = ["source", "vin_label", "vin_detected", "vin_match", "error"];
+  const usedCols = cols.filter(c => rows.some(r => r[c] !== undefined && r[c] !== null && r[c] !== ""));
+
+  lastVinMismatch = { task: j.task, columns: usedCols, results: rows };
+
+  const thead = $("#vin-mismatch-table thead");
+  const tbody = $("#vin-mismatch-table tbody");
+  thead.innerHTML = "<tr>" + usedCols.map(c => `<th>${colLabel(c)}</th>`).join("") + "</tr>";
+  tbody.innerHTML = rows.map(row => {
+    const tds = usedCols.map(c => {
+      let v = row[c]; v = (v === null || v === undefined) ? "" : v;
+      const cls = (c === "vin_match" && v === "✗") ? "miss" : (c === "vin_match" && v === "✓") ? "ok" : "";
+      return `<td class="${cls}">${String(v)}</td>`;
+    }).join("");
+    return `<tr>${tds}</tr>`;
+  }).join("");
+
+  $("#vin-mismatch-body").classList.remove("collapsed");
+  $('[data-target="vin-mismatch-body"]').textContent = "收起";
   sec.classList.remove("hidden");
 }
 

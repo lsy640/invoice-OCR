@@ -60,17 +60,33 @@
     </section>
 
     <!-- 异常面板：金额不匹配 -->
-    <section id="mismatch-section" class="card anomaly-card hidden">
+    <section id="amount-mismatch-section" class="card anomaly-card hidden">
       <div class="anomaly-header anomaly-header--mismatch">
         <span class="anomaly-icon">&#9888;</span>
-        <h3>金额/车架号不匹配</h3>
-        <span id="mismatch-count" class="anomaly-count"></span>
-        <button id="export-mismatch" class="export-btn export-btn--anomaly">导出 Excel</button>
-        <button class="anomaly-toggle" data-target="mismatch-body">收起</button>
+        <h3>金额不匹配</h3>
+        <span id="amount-mismatch-count" class="anomaly-count"></span>
+        <button id="export-amount-mismatch" class="export-btn export-btn--anomaly">导出 Excel</button>
+        <button class="anomaly-toggle" data-target="amount-mismatch-body">收起</button>
       </div>
-      <div id="mismatch-body" class="anomaly-body">
+      <div id="amount-mismatch-body" class="anomaly-body">
         <div class="table-wrap">
-          <table id="mismatch-table"><thead></thead><tbody></tbody></table>
+          <table id="amount-mismatch-table"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 异常面板：车架号不匹配 -->
+    <section id="vin-mismatch-section" class="card anomaly-card hidden">
+      <div class="anomaly-header anomaly-header--vin">
+        <span class="anomaly-icon">&#9888;</span>
+        <h3>车架号不匹配</h3>
+        <span id="vin-mismatch-count" class="anomaly-count"></span>
+        <button id="export-vin-mismatch" class="export-btn export-btn--anomaly">导出 Excel</button>
+        <button class="anomaly-toggle" data-target="vin-mismatch-body">收起</button>
+      </div>
+      <div id="vin-mismatch-body" class="anomaly-body">
+        <div class="table-wrap">
+          <table id="vin-mismatch-table"><thead></thead><tbody></tbody></table>
         </div>
       </div>
     </section>

@@ -65,11 +65,13 @@ td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
 .chip-total  { background: #e8edf3; color: #305496; }
 .chip-ok     { background: #e8f5e9; color: #2e7d32; }
 .chip-miss   { background: #fdecea; color: #b71c1c; }
+.chip-vin    { background: #f3e5f5; color: #6a1b9a; }
 .chip-warn   { background: #fff8e1; color: #e65100; }
 
 /* ── 异常面板 ───────────────────────────────────────────── */
 .anomaly-card { border-left: 4px solid transparent; }
 .anomaly-card:has(.anomaly-header--mismatch) { border-left-color: #e53935; }
+.anomaly-card:has(.anomaly-header--vin)      { border-left-color: #6a1b9a; }
 .anomaly-card:has(.anomaly-header--parking)  { border-left-color: #e65100; }
 
 .anomaly-header {
@@ -80,6 +82,8 @@ td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
 .anomaly-icon { font-size: 20px; line-height: 1; }
 .anomaly-header--mismatch .anomaly-icon { color: #e53935; }
 .anomaly-header--mismatch h3 { color: #c62828; }
+.anomaly-header--vin .anomaly-icon { color: #6a1b9a; }
+.anomaly-header--vin h3 { color: #4a148c; }
 .anomaly-header--parking .anomaly-icon  { color: #e65100; }
 .anomaly-header--parking h3  { color: #bf360c; }
 
@@ -88,6 +92,7 @@ td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
   padding: 3px 10px; border-radius: 12px;
 }
 .anomaly-header--mismatch .anomaly-count { background: #fdecea; color: #c62828; }
+.anomaly-header--vin      .anomaly-count { background: #f3e5f5; color: #6a1b9a; }
 .anomaly-header--parking  .anomaly-count { background: #fff3e0; color: #e65100; }
 
 .anomaly-toggle {
@@ -109,6 +114,8 @@ td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
 }
 .anomaly-header--mismatch ~ .anomaly-body table th,
 .anomaly-header--mismatch ~ .anomaly-desc + .anomaly-body table th { background: #fce4ec; color: #b71c1c; }
+.anomaly-header--vin ~ .anomaly-body table th,
+.anomaly-header--vin ~ .anomaly-desc + .anomaly-body table th      { background: #f3e5f5; color: #4a148c; }
 .anomaly-header--parking ~ .anomaly-body table th,
 .anomaly-header--parking ~ .anomaly-desc + .anomaly-body table th  { background: #fff3e0; color: #e65100; }
 

@@ -18,7 +18,7 @@ main { max-width: 1100px; margin: 18px auto; padding: 0 16px; }
 .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
 .tab { border: 1px solid #d6dbe3; background: #fff; padding: 8px 14px; border-radius: 8px; cursor: pointer; }
 .tab.active { background: #305496; color: #fff; border-color: #305496; }
-.pane.hidden, .hidden { display: none; }
+.pane.hidden, .hidden { display: none !important; }
 textarea, input[type=file] { width: 100%; border: 1px solid #d6dbe3; border-radius: 8px; padding: 10px; font-size: 14px; }
 .actions { margin-top: 14px; }
 button.primary { background: #305496; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px; }
@@ -33,6 +33,21 @@ th { background: #305496; color: #fff; position: sticky; top: 0; }
 tr.row-miss td { background: #fdecea; }
 td.miss { color: #b71c1c; font-weight: 700; text-align: center; }
 td.ok { color: #2e7d32; font-weight: 700; text-align: center; }
+
+/* ── 进度条 ─────────────────────────────────────────────── */
+.progress-wrap {
+  margin-top: 12px; display: flex; align-items: center; gap: 12px;
+}
+.progress-track {
+  flex: 1; height: 10px; background: #e8edf3; border-radius: 5px; overflow: hidden;
+}
+.progress-bar {
+  height: 100%; width: 0%; background: linear-gradient(90deg, #305496, #5b8bd4);
+  border-radius: 5px; transition: width .3s ease;
+}
+.progress-text {
+  font-size: 12px; color: #305496; font-weight: 600; white-space: nowrap; min-width: 120px;
+}
 
 /* ── 表格标题行 ─────────────────────────────────────────── */
 .table-header-row {

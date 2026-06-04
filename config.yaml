@@ -43,7 +43,7 @@ inference:
 app:
   host: "0.0.0.0"
   port: 8000
-  max_batch_images: 500               # 单次批量上限（图片张数/Excel行数）
+  max_batch_images: 3000              # 单次批量上限（图片张数/Excel行数）
 
 # ── 评测（批处理算准确率用）────────────────────────────────────
 evaluation:

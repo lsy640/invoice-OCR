@@ -63,6 +63,60 @@ function setStatus(msg, busy = false) {
   $("#run").disabled = busy;
 }
 
+// ── 进度条 ──────────────────────────────────────────────
+function showProgress(current, total, stage) {
+  const wrap = $("#progress-wrap");
+  const bar = $("#progress-bar");
+  const text = $("#progress-text");
+  wrap.classList.remove("hidden");
+  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+  bar.style.width = pct + "%";
+  const stageStr = stage ? ` (${stage})` : "";
+  text.textContent = `${current} / ${total}${stageStr}  ${pct}%`;
+}
+
+function hideProgress() {
+  $("#progress-wrap").classList.add("hidden");
+  $("#progress-bar").style.width = "0%";
+  $("#progress-text").textContent = "";
+}
+
+// ── SSE 流式解析 ────────────────────────────────────────
+async function readSSE(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop();
+
+    for (const part of parts) {
+      let event = "message", data = "";
+      for (const line of part.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice(7);
+        else if (line.startsWith("data: ")) data = line.slice(6);
+      }
+      if (!data) continue;
+
+      const parsed = JSON.parse(data);
+      if (event === "progress") {
+        showProgress(parsed.current, parsed.total, parsed.stage);
+      } else if (event === "done") {
+        result = parsed;
+      } else if (event === "error") {
+        throw new Error(parsed.detail || "识别出错");
+      }
+    }
+  }
+  return result;
+}
+
 // ── 通用导出函数 ────────────────────────────────────────
 async function exportToExcel(payload, filename) {
   const r = await fetch("/api/export", {
@@ -97,16 +151,24 @@ $("#run").addEventListener("click", async () => {
     fd.append("excel", f);
   }
   setStatus("识别中…（首次会加载模型，可能较久）", true);
+  showProgress(0, 0, "准备中");
   try {
     const r = await fetch("/api/recognize", { method: "POST", body: fd });
-    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || r.statusText); }
-    const j = await r.json();
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || r.statusText);
+    }
+    const j = await readSSE(r);
+    if (!j) throw new Error("未收到识别结果");
     lastResults = { task: j.task, columns: j.columns, results: j.results };
     renderAll(j);
     setStatus(`完成：${j.n} 条`);
   } catch (e) {
     setStatus("出错：" + e.message);
-  } finally { $("#run").disabled = false; }
+  } finally {
+    hideProgress();
+    $("#run").disabled = false;
+  }
 });
 
 // 主结果表导出

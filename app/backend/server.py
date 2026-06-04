@@ -8,6 +8,7 @@ InvoicePipeline 与 ParkingPipeline 共用同一 backend；推理用全局锁串
 from __future__ import annotations
 
 import io
+import json
 import sys
 import threading
 from pathlib import Path
@@ -87,37 +88,8 @@ def _flatten_parking(res: dict, source: str) -> dict:
     return out
 
 
-# ── 业务执行（均在 _infer_lock 内调用）─────────────────────────────
-def _run_invoice(mode, files, urls, excel_bytes) -> list[dict]:
-    pipe = _state["invoice"]
-    if mode == "images":
-        imgs = _load_uploads(files); _check_batch(len(imgs))
-        return [{**r, "source": f"上传图片#{i+1}"} for i, r in enumerate(pipe.process(imgs))]
-    if mode == "urls":
-        us = _split_urls(urls); _check_batch(len(us))
-        return pipe.process(us)
-    if mode == "excel":
-        rows = excel_io.read_invoice_excel(excel_bytes); _check_batch(len(rows))
-        return pipe.process([r["pic_url"] for r in rows], [r["supply_money"] for r in rows])
-    raise HTTPException(400, f"未知 mode: {mode}")
-
-
-def _run_parking(mode, files, urls, excel_bytes) -> list[dict]:
-    pipe = _state["parking"]
-    if mode == "images":
-        imgs = _load_uploads(files); _check_batch(len(imgs))
-        return [_flatten_parking(pipe.process(imgs), "上传图片(一组)")]
-    if mode == "urls":
-        us = _split_urls(urls); _check_batch(len(us))
-        return [_flatten_parking(pipe.process(us), "URL(一组)")]
-    if mode == "excel":
-        rows = excel_io.read_parking_excel(excel_bytes); _check_batch(len(rows))
-        out = []
-        for i, r in enumerate(rows):
-            res = pipe.process(r["images"], cost=r["cost"], vin=r["vin"])
-            out.append(_flatten_parking(res, r.get("workflow_no") or f"第{i+1}行"))
-        return out
-    raise HTTPException(400, f"未知 mode: {mode}")
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 # ── 路由 ───────────────────────────────────────────────────────────
@@ -138,22 +110,129 @@ def recognize(
         raise HTTPException(400, "task 须为 invoice 或 parking")
     if mode not in ("images", "urls", "excel"):
         raise HTTPException(400, "mode 须为 images/urls/excel")
+
     _ensure_loaded()
     excel_bytes = excel.file.read() if excel is not None else b""
-    try:
+
+    def generate_stream():
         with _infer_lock:
-            if task == "invoice":
-                results, columns = _run_invoice(mode, files, urls, excel_bytes), INVOICE_COLUMNS
-            else:
-                results, columns = _run_parking(mode, files, urls, excel_bytes), PARKING_COLUMNS
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    for r in results:                      # raw/refine_raw 仅调试用，不回传前端
-        r.pop("raw", None)
-        r.pop("refine_raw", None)
-    n_mismatch = sum(1 for r in results if r.get("amount_match") == "✗" or r.get("vin_match") == "✗")
-    return {"task": task, "mode": mode, "columns": columns,
-            "results": results, "n": len(results), "n_mismatch": n_mismatch}
+            yield _sse_event("status", {"phase": "processing"})
+
+            try:
+                if task == "invoice":
+                    columns = INVOICE_COLUMNS
+                    pipe = _state["invoice"]
+                    if mode == "images":
+                        imgs = _load_uploads(files); _check_batch(len(imgs))
+                        sources = [f"上传图片#{i+1}" for i in range(len(imgs))]
+                        labels = [None] * len(imgs)
+                    elif mode == "urls":
+                        us = _split_urls(urls); _check_batch(len(us))
+                        imgs, sources = us, list(us)
+                        labels = [None] * len(us)
+                    elif mode == "excel":
+                        rows = excel_io.read_invoice_excel(excel_bytes); _check_batch(len(rows))
+                        imgs = [r["pic_url"] for r in rows]
+                        sources, labels = list(imgs), [r["supply_money"] for r in rows]
+                    else:
+                        yield _sse_event("error", {"detail": f"未知 mode: {mode}"})
+                        return
+
+                    total = len(imgs)
+                    results = []
+                    for i, (src, lb) in enumerate(zip(imgs, labels)):
+                        yield _sse_event("progress", {"current": i, "total": total})
+                        r = pipe.process_one(src, lb)
+                        if mode == "images" and isinstance(src, Image.Image):
+                            r["source"] = sources[i]
+                        results.append(r)
+                    yield _sse_event("progress", {"current": total, "total": total})
+
+                else:
+                    columns = PARKING_COLUMNS
+                    pipe = _state["parking"]
+                    if mode == "images":
+                        imgs = _load_uploads(files); _check_batch(len(imgs))
+                        total_imgs = len(imgs)
+                        yield _sse_event("progress", {"current": 0, "total": total_imgs, "stage": "逐图识别"})
+                        # Process images with per-image progress
+                        recs, pil_imgs = [], []
+                        for idx, src in enumerate(imgs):
+                            try:
+                                im = pipe.load_image(src)
+                                pil_imgs.append(im)
+                                r = pipe.extract_image(im)
+                            except Exception as e:
+                                im = None
+                                r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
+                                     "dt": None, "vin": None, "plate": None, "amount": None,
+                                     "lease_start": None, "lease_end": None, "raw": None}
+                            r["image"] = str(src) if not isinstance(src, Image.Image) else f"上传图片#{idx+1}"
+                            recs.append(r)
+                            yield _sse_event("progress", {"current": idx + 1, "total": total_imgs, "stage": "逐图识别"})
+                        # refine
+                        for im, r in zip(pil_imgs, recs):
+                            if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):
+                                pipe.refine_invoice(im, r)
+                        from parking_aggregate import aggregate_group
+                        summary = aggregate_group(recs, cost=None, gt_vin=None, tol=pipe.tol)
+                        res = {"cost": None, "vin_label": None, **summary, "images": recs}
+                        results = [_flatten_parking(res, "上传图片(一组)")]
+
+                    elif mode == "urls":
+                        us = _split_urls(urls); _check_batch(len(us))
+                        total_imgs = len(us)
+                        recs, pil_imgs = [], []
+                        for idx, src in enumerate(us):
+                            yield _sse_event("progress", {"current": idx, "total": total_imgs, "stage": "逐图识别"})
+                            try:
+                                im = pipe.load_image(src)
+                                pil_imgs.append(im)
+                                r = pipe.extract_image(im)
+                            except Exception as e:
+                                im = None
+                                r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
+                                     "dt": None, "vin": None, "plate": None, "amount": None,
+                                     "lease_start": None, "lease_end": None, "raw": None}
+                            r["image"] = str(src)
+                            recs.append(r)
+                        yield _sse_event("progress", {"current": total_imgs, "total": total_imgs, "stage": "逐图识别"})
+                        for im, r in zip(pil_imgs, recs):
+                            if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):
+                                pipe.refine_invoice(im, r)
+                        from parking_aggregate import aggregate_group
+                        summary = aggregate_group(recs, cost=None, gt_vin=None, tol=pipe.tol)
+                        res = {"cost": None, "vin_label": None, **summary, "images": recs}
+                        results = [_flatten_parking(res, "URL(一组)")]
+
+                    elif mode == "excel":
+                        rows = excel_io.read_parking_excel(excel_bytes); _check_batch(len(rows))
+                        total = len(rows)
+                        results = []
+                        for i, r in enumerate(rows):
+                            yield _sse_event("progress", {"current": i, "total": total, "stage": r.get("workflow_no") or f"第{i+1}行"})
+                            res = pipe.process(r["images"], cost=r["cost"], vin=r["vin"])
+                            results.append(_flatten_parking(res, r.get("workflow_no") or f"第{i+1}行"))
+                        yield _sse_event("progress", {"current": total, "total": total})
+                    else:
+                        yield _sse_event("error", {"detail": f"未知 mode: {mode}"})
+                        return
+
+            except ValueError as e:
+                yield _sse_event("error", {"detail": str(e)})
+                return
+            except HTTPException as e:
+                yield _sse_event("error", {"detail": e.detail})
+                return
+
+            for r in results:
+                r.pop("raw", None)
+                r.pop("refine_raw", None)
+            n_mismatch = sum(1 for r in results if r.get("amount_match") == "✗" or r.get("vin_match") == "✗")
+            yield _sse_event("done", {"task": task, "mode": mode, "columns": columns,
+                                      "results": results, "n": len(results), "n_mismatch": n_mismatch})
+
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/export")

@@ -332,7 +332,11 @@ function renderVinMismatch(j) {
 function getParkingAnomalies(results) {
   return results.filter(r => {
     const price = parseFloat(r.unit_price_yuan_per_h);
-    return !isNaN(price) && price > 0 && (price > PARKING_HIGH || price < PARKING_LOW);
+    const amt = parseFloat(r.payment_amount);
+    // 异常：单价过高/过低，或停车费未识别到（金额为空/NaN/0）
+    if (!isNaN(price) && price > 0 && (price > PARKING_HIGH || price < PARKING_LOW)) return true;
+    if (isNaN(amt) || amt === null || amt === undefined || amt === 0 || r.payment_amount === null || r.payment_amount === undefined || r.payment_amount === "") return true;
+    return false;
   });
 }
 
@@ -357,11 +361,18 @@ function renderParkingAnomaly(j) {
                     "unit_price_yuan_per_h", "payment_amount", "cost"];
   const usedCols = baseCols.filter(c => rows.some(r => r[c] !== undefined && r[c] !== null && r[c] !== ""));
 
-  // 导出数据增加异常原因列
-  const exportRows = rows.map(r => {
+  // 异常原因判定
+  function _anomalyReason(r) {
     const price = parseFloat(r.unit_price_yuan_per_h);
-    return { ...r, anomaly_reason: price > PARKING_HIGH ? `单价过高(>${PARKING_HIGH}元/h)` : `单价过低(<${PARKING_LOW}元/h)` };
-  });
+    const amt = parseFloat(r.payment_amount);
+    if (isNaN(amt) || amt === 0 || r.payment_amount === null || r.payment_amount === undefined || r.payment_amount === "") return "未识别到金额";
+    if (!isNaN(price) && price > PARKING_HIGH) return `单价过高(>${PARKING_HIGH}元/h)`;
+    if (!isNaN(price) && price > 0 && price < PARKING_LOW) return `单价过低(<${PARKING_LOW}元/h)`;
+    return "未识别到金额";
+  }
+
+  // 导出数据增加异常原因列
+  const exportRows = rows.map(r => ({ ...r, anomaly_reason: _anomalyReason(r) }));
   lastParkingAnomaly = { task: j.task, columns: [...usedCols, "anomaly_reason"], results: exportRows };
 
   const displayCols = [...usedCols, "_reason"];
@@ -369,12 +380,13 @@ function renderParkingAnomaly(j) {
   const tbody = $("#parking-anomaly-table tbody");
   thead.innerHTML = "<tr>" + displayCols.map(c => `<th>${colLabel(c)}</th>`).join("") + "</tr>";
   tbody.innerHTML = rows.map(row => {
-    const price = parseFloat(row.unit_price_yuan_per_h);
-    const isHigh = price > PARKING_HIGH;
+    const reason = _anomalyReason(row);
     const tds = displayCols.map(c => {
       if (c === "_reason") {
-        if (isHigh) return `<td><span class="reason-tag reason-tag--high">单价过高 (&gt;${PARKING_HIGH}元/h)</span></td>`;
-        return `<td><span class="reason-tag reason-tag--low">单价过低 (&lt;${PARKING_LOW}元/h)</span></td>`;
+        const isHigh = reason.includes("过高");
+        const isMissing = reason.includes("未识别");
+        const cls = isHigh ? "reason-tag--high" : isMissing ? "reason-tag--high" : "reason-tag--low";
+        return `<td><span class="reason-tag ${cls}">${reason}</span></td>`;
       }
       let v = row[c]; v = (v === null || v === undefined) ? "" : v;
       const cls = c === "unit_price_yuan_per_h" ? "miss" : "";

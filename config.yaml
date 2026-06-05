@@ -8,7 +8,7 @@ data:
   xlsx: "data/发票数据.xlsx"
   image_dir: "data/images"            # 下载图片缓存
   records_json: "data/records.json"   # prepare_data.py 产出
-  max_image_long_side: 2048           # 图片长边上限，超过则等比缩小（省显存/token）
+  max_image_long_side: 1280           # 图片长边上限，超过则等比缩小（省显存/token；2048→1280 提速显著）
 
 # ── 数据（任务二·停车）─────────────────────────────────────────
 parking:
@@ -37,13 +37,16 @@ inference:
   # auto = macOS(M系列)+mlx可用→mlx；否则 transformers(有CUDA→GPU，否则CPU)
   backend: "auto"
   device: "auto"                      # transformers 设备：auto|cuda|cpu（INFERENCE_DEVICE 可覆盖）
+  quantize: null                      # null 不量化 / "4bit" NF4量化 / "8bit"（需 CUDA + bitsandbytes）
+  torch_compile: false                # true 启用 torch.compile（首次慢，后续快 20-40%；需 CUDA）
   mlx_repo: "./models/GLM-OCR-mlx-4bit"  # macOS MLX 4-bit 量化权重
 
 # ── Web 应用（前后端一体）─────────────────────────────────────────
 app:
   host: "0.0.0.0"
-  port: 8000
+  port: 7000
   max_batch_images: 3000              # 单次批量上限（图片张数/Excel行数）
+  prefetch_workers: 8                 # 图片预加载线程数（CPU 下载/预处理与 GPU 推理并行）
 
 # ── 评测（批处理算准确率用）────────────────────────────────────
 evaluation:

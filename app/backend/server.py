@@ -11,6 +11,8 @@ import io
 import json
 import sys
 import threading
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import quote
 
@@ -34,6 +36,7 @@ from schemas import INVOICE_COLUMNS, PARKING_COLUMNS       # noqa: E402
 _CFG = load_config()
 _APP = _CFG.get("app", {})
 _MAX_BATCH = int(_APP.get("max_batch_images", 500))
+_PREFETCH_WORKERS = int(_APP.get("prefetch_workers", 8))
 
 app = FastAPI(title="GLM-OCR 票据/停车识别")
 
@@ -92,6 +95,32 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _prefetch_load(sources, load_fn, workers: int = 0):
+    """滑动窗口预加载：CPU 线程池提前下载/预处理图片，GPU 处理当前图时后续图片已就绪。
+
+    yield (idx, image|None, error_str|None)，按原始顺序返回。
+    """
+    workers = workers or _PREFETCH_WORKERS
+    n = len(sources)
+    if n == 0:
+        return
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        window = min(workers * 2, n)               # 预取窗口 = 2×线程数
+        futs: deque = deque()
+        for i in range(window):
+            futs.append(pool.submit(load_fn, sources[i]))
+        next_i = window
+        for i in range(n):
+            fut = futs.popleft()
+            if next_i < n:                          # 滑动：补充下一张
+                futs.append(pool.submit(load_fn, sources[next_i]))
+                next_i += 1
+            try:
+                yield i, fut.result(), None
+            except Exception as e:
+                yield i, None, f"{type(e).__name__}: {e}"
+
+
 # ── 路由 ───────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health():
@@ -140,36 +169,48 @@ def recognize(
 
                     total = len(imgs)
                     results = []
-                    for i, (src, lb) in enumerate(zip(imgs, labels)):
+                    for i, img, err in _prefetch_load(imgs, pipe.load_image):
                         yield _sse_event("progress", {"current": i, "total": total})
-                        r = pipe.process_one(src, lb)
-                        if mode == "images" and isinstance(src, Image.Image):
+                        lb = labels[i]
+                        if err:
+                            r = {"source": sources[i], "pred_amount": None, "label": lb,
+                                 "amount_match": "", "raw": None, "error": f"load_error:{err}"}
+                        else:
+                            r = pipe.extract_amount(img)
                             r["source"] = sources[i]
+                            r["label"] = lb
+                            if lb is not None and r.get("pred_amount") is not None:
+                                r["amount_match"] = "✓" if abs(r["pred_amount"] - float(lb)) <= pipe.tol else "✗"
+                            else:
+                                r["amount_match"] = ""
                         results.append(r)
                     yield _sse_event("progress", {"current": total, "total": total})
 
                 else:
                     columns = PARKING_COLUMNS
                     pipe = _state["parking"]
-                    if mode == "images":
-                        imgs = _load_uploads(files); _check_batch(len(imgs))
-                        total_imgs = len(imgs)
-                        yield _sse_event("progress", {"current": 0, "total": total_imgs, "stage": "逐图识别"})
-                        # Process images with per-image progress
+                    if mode in ("images", "urls"):
+                        if mode == "images":
+                            raw_imgs = _load_uploads(files); _check_batch(len(raw_imgs))
+                            src_names = [f"上传图片#{i+1}" for i in range(len(raw_imgs))]
+                        else:
+                            raw_imgs = _split_urls(urls); _check_batch(len(raw_imgs))
+                            src_names = list(raw_imgs)
+                        total_imgs = len(raw_imgs)
                         recs, pil_imgs = [], []
-                        for idx, src in enumerate(imgs):
-                            try:
-                                im = pipe.load_image(src)
+                        _ERR_REC = {"img_type": None, "dt": None, "vin": None, "plate": None,
+                                    "amount": None, "lease_start": None, "lease_end": None, "raw": None}
+                        for idx, im, err in _prefetch_load(raw_imgs, pipe.load_image):
+                            yield _sse_event("progress", {"current": idx, "total": total_imgs, "stage": "逐图识别"})
+                            if err:
+                                pil_imgs.append(None)
+                                r = {**_ERR_REC, "error": f"load_error:{err}"}
+                            else:
                                 pil_imgs.append(im)
                                 r = pipe.extract_image(im)
-                            except Exception as e:
-                                im = None
-                                r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
-                                     "dt": None, "vin": None, "plate": None, "amount": None,
-                                     "lease_start": None, "lease_end": None, "raw": None}
-                            r["image"] = str(src) if not isinstance(src, Image.Image) else f"上传图片#{idx+1}"
+                            r["image"] = src_names[idx]
                             recs.append(r)
-                            yield _sse_event("progress", {"current": idx + 1, "total": total_imgs, "stage": "逐图识别"})
+                        yield _sse_event("progress", {"current": total_imgs, "total": total_imgs, "stage": "逐图识别"})
                         # refine
                         for im, r in zip(pil_imgs, recs):
                             if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):
@@ -177,33 +218,8 @@ def recognize(
                         from parking_aggregate import aggregate_group
                         summary = aggregate_group(recs, cost=None, gt_vin=None, tol=pipe.tol)
                         res = {"cost": None, "vin_label": None, **summary, "images": recs}
-                        results = [_flatten_parking(res, "上传图片(一组)")]
-
-                    elif mode == "urls":
-                        us = _split_urls(urls); _check_batch(len(us))
-                        total_imgs = len(us)
-                        recs, pil_imgs = [], []
-                        for idx, src in enumerate(us):
-                            yield _sse_event("progress", {"current": idx, "total": total_imgs, "stage": "逐图识别"})
-                            try:
-                                im = pipe.load_image(src)
-                                pil_imgs.append(im)
-                                r = pipe.extract_image(im)
-                            except Exception as e:
-                                im = None
-                                r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
-                                     "dt": None, "vin": None, "plate": None, "amount": None,
-                                     "lease_start": None, "lease_end": None, "raw": None}
-                            r["image"] = str(src)
-                            recs.append(r)
-                        yield _sse_event("progress", {"current": total_imgs, "total": total_imgs, "stage": "逐图识别"})
-                        for im, r in zip(pil_imgs, recs):
-                            if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):
-                                pipe.refine_invoice(im, r)
-                        from parking_aggregate import aggregate_group
-                        summary = aggregate_group(recs, cost=None, gt_vin=None, tol=pipe.tol)
-                        res = {"cost": None, "vin_label": None, **summary, "images": recs}
-                        results = [_flatten_parking(res, "URL(一组)")]
+                        label = "上传图片(一组)" if mode == "images" else "URL(一组)"
+                        results = [_flatten_parking(res, label)]
 
                     elif mode == "excel":
                         rows = excel_io.read_parking_excel(excel_bytes); _check_batch(len(rows))

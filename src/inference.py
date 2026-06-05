@@ -27,7 +27,8 @@ class InferenceBackend(ABC):
 class TransformersBackend(InferenceBackend):
     name = "transformers"
 
-    def __init__(self, repo: str, device: str | None = None, max_new_tokens: int = 256):
+    def __init__(self, repo: str, device: str | None = None, max_new_tokens: int = 256,
+                 use_compile: bool = False, quantize: str | None = None):
         import torch
         from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -37,16 +38,44 @@ class TransformersBackend(InferenceBackend):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
         dtype = torch.bfloat16 if device == "cuda" else torch.float32
-        print(f"[backend:transformers] 加载 {repo} (device={device}, dtype={dtype}) ...", flush=True)
+
+        # CUDA 优化：启用 SDPA（Scaled Dot-Product Attention）高效注意力
+        attn_impl = "sdpa" if device == "cuda" else None
+
+        # 量化配置：4bit/8bit（仅 CUDA，需 bitsandbytes）
+        quant_config = None
+        if quantize and device == "cuda":
+            from transformers import BitsAndBytesConfig
+            if quantize == "4bit":
+                quant_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                    bnb_4bit_quant_type="nf4",
+                )
+            elif quantize == "8bit":
+                quant_config = BitsAndBytesConfig(load_in_8bit=True)
+            print(f"[backend:transformers] 量化模式: {quantize}", flush=True)
+
+        print(f"[backend:transformers] 加载 {repo} (device={device}, dtype={dtype}, attn={attn_impl}) ...", flush=True)
         self.processor = AutoProcessor.from_pretrained(repo, trust_remote_code=True)
-        self.model = AutoModelForImageTextToText.from_pretrained(
-            repo, torch_dtype=dtype,
+        model_kwargs = dict(
+            dtype=dtype,
             device_map=("cuda" if device == "cuda" else None),
             trust_remote_code=True,
         )
-        if device != "cuda":
+        if attn_impl:
+            model_kwargs["attn_implementation"] = attn_impl
+        if quant_config:
+            model_kwargs["quantization_config"] = quant_config
+        self.model = AutoModelForImageTextToText.from_pretrained(repo, **model_kwargs)
+        if device != "cuda" and not quant_config:
             self.model = self.model.to(device)
         self.model.eval()
+
+        # torch.compile：首次推理慢（编译），后续加速 20-40%
+        if use_compile and device == "cuda" and not quant_config:
+            print("[backend:transformers] torch.compile 编译中（首次推理会较慢）...", flush=True)
+            self.model = torch.compile(self.model, mode="reduce-overhead")
 
     def ocr(self, image: Image.Image, instruction: str) -> str:
         messages = [{
@@ -133,4 +162,7 @@ def get_backend(cfg: dict, override: str | None = None) -> InferenceBackend:
         except Exception as e:  # noqa: BLE001
             print(f"[backend] MLX 初始化失败({type(e).__name__}: {e})，回退 transformers", flush=True)
 
-    return TransformersBackend(repo, device=device, max_new_tokens=max_new)
+    use_compile = str(inf.get("torch_compile", False)).lower() in ("true", "1", "yes")
+    quantize = inf.get("quantize")  # null / "4bit" / "8bit"
+    return TransformersBackend(repo, device=device, max_new_tokens=max_new,
+                               use_compile=use_compile, quantize=quantize)

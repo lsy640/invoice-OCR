@@ -107,19 +107,36 @@ class ParkingPipeline:
 
     # ── 端到端：一组图片 → 完整结果 ────────────────────────────────
     def process(self, images: list, cost: float | None = None, vin: str | None = None) -> dict:
+        from collections import deque
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = min(8, len(images)) or 1
         recs, pil_imgs = [], []
-        for src in images:
-            try:
-                im = self.load_image(src)
-                pil_imgs.append(im)
-                r = self.extract_image(im)
-            except Exception as e:  # noqa: BLE001
-                im = None
-                r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
-                     "dt": None, "vin": None, "plate": None, "amount": None,
-                     "lease_start": None, "lease_end": None, "raw": None}
-            r["image"] = str(src)
-            recs.append(r)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            window = min(workers * 2, len(images))
+            futs: deque = deque()
+            for i in range(window):
+                futs.append((i, pool.submit(self.load_image, images[i])))
+            next_i = window
+
+            for i in range(len(images)):
+                idx, fut = futs.popleft()
+                if next_i < len(images):
+                    futs.append((next_i, pool.submit(self.load_image, images[next_i])))
+                    next_i += 1
+                try:
+                    im = fut.result()
+                    pil_imgs.append(im)
+                    r = self.extract_image(im)
+                except Exception as e:  # noqa: BLE001
+                    im = None
+                    pil_imgs.append(None)
+                    r = {"img_type": None, "error": f"load_error:{type(e).__name__}:{e}",
+                         "dt": None, "vin": None, "plate": None, "amount": None,
+                         "lease_start": None, "lease_end": None, "raw": None}
+                r["image"] = str(images[i])
+                recs.append(r)
         # 二次 OCR 补救：发票但未读到停车区间
         for im, r in zip(pil_imgs, recs):
             if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):

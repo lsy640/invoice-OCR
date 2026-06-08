@@ -1,36 +1,5 @@
-"""抽取指令与 JSON Schema（仅两个字段：实付金额 + 补能类型）。"""
+"""GLM-OCR KIE 抽取指令（Prompt）。"""
 from __future__ import annotations
-
-# vLLM guided decoding 用的 JSON Schema：强制模型输出结构化结果。
-EXTRACTION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "amount": {
-            "type": ["number", "null"],
-            "description": "实付总金额，单位元；票据上的实际支付/实收金额",
-        },
-        "supplementation_type": {
-            "type": ["string", "null"],
-            "enum": ["加油", "充电", None],
-            "description": "补能类型，只能是 加油 或 充电",
-        },
-    },
-    "required": ["amount", "supplementation_type"],
-    "additionalProperties": False,
-}
-
-SYSTEM_PROMPT = "你是票据信息抽取助手，只输出 JSON，不要解释、不要 Markdown 代码块。"
-
-USER_PROMPT = (
-    "这是一张车辆补能（加油或充电）的发票或支付截图。请抽取以下两个字段并输出 JSON：\n"
-    "1. amount：实付总金额（单位：元，数字）。若票据同时出现订单金额、优惠、实付等多个金额，"
-    "取用户实际支付/实收的总金额；无法判断则为 null。\n"
-    "2. supplementation_type：补能类型，只能取 \"加油\" 或 \"充电\"。"
-    "加油站/汽油/柴油/升数/油枪等 → 加油；充电站/充电桩/度数(kWh)/电费/服务费 → 充电；"
-    "无法判断则为 null。\n"
-    "严格按如下格式仅输出一个 JSON 对象：\n"
-    '{"amount": 数字或null, "supplementation_type": "加油"或"充电"或null}'
-)
 
 
 # ── GLM-OCR 专用 KIE prompt ────────────────────────────────────────
@@ -109,15 +78,3 @@ def build_glm_messages(image) -> list[dict]:
     ]
 
 
-def build_messages(image_data_url: str) -> list[dict]:
-    """构造 OpenAI chat.completions 的 messages（图片以 data URL 内联）。"""
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": image_data_url}},
-                {"type": "text", "text": USER_PROMPT},
-            ],
-        },
-    ]

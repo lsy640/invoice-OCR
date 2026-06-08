@@ -50,11 +50,14 @@ document.addEventListener("click", (e) => {
   e.target.textContent = body.classList.contains("collapsed") ? "展开" : "收起";
 });
 
+let _healthTimer = null;
 async function health() {
   try {
     const r = await fetch("/api/health");
     const j = await r.json();
     $("#backend-badge").textContent = "后端：" + (j.backend || (j.model_loaded ? "已加载" : "待加载"));
+    // 模型已加载后停止轮询
+    if (j.model_loaded && _healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
   } catch { $("#backend-badge").textContent = "后端：连接失败"; }
 }
 
@@ -215,7 +218,15 @@ function renderSummary(j) {
 
   const amtMiss = j.results.filter(r => r.amount_match === "✗");
   const vinMiss = j.results.filter(r => r.vin_match === "✗");
-  const matched = j.results.filter(r => r.amount_match === "✓" || r.vin_match === "✓");
+  // 完全匹配：所有参与比对的字段都必须为 ✓，任一为 ✗ 则不算匹配
+  const matched = j.results.filter(r => {
+    const hasAmt = r.amount_match === "✓" || r.amount_match === "✗";
+    const hasVin = r.vin_match === "✓" || r.vin_match === "✗";
+    if (!hasAmt && !hasVin) return false;  // 无比对字段，不计入匹配
+    if (hasAmt && r.amount_match !== "✓") return false;
+    if (hasVin && r.vin_match !== "✓") return false;
+    return true;
+  });
 
   let html = `<span class="summary-chip chip-total">共 ${total} 条</span>`;
   if (matched.length)  html += `<span class="summary-chip chip-ok">匹配 ${matched.length}</span>`;
@@ -237,7 +248,16 @@ function renderTable(j) {
   const thead = $("#result-table thead"), tbody = $("#result-table tbody");
   thead.innerHTML = "<tr>" + cols.map((c) => `<th>${colLabel(c)}</th>`).join("") + "</tr>";
   tbody.innerHTML = j.results.map((row) => {
-    const bad = row.amount_match === "✗" || row.vin_match === "✗";
+    const mismatch = row.amount_match === "✗" || row.vin_match === "✗";
+    let noAmount = false;
+    if (j.task === "parking") {
+      const pa = row.payment_amount;
+      noAmount = pa === null || pa === undefined || pa === "" || isNaN(parseFloat(pa));
+    } else {
+      const pa = row.pred_amount;
+      noAmount = pa === null || pa === undefined || pa === "" || isNaN(parseFloat(pa));
+    }
+    const bad = mismatch || noAmount;
     const tds = cols.map((c) => {
       let v = row[c]; v = (v === null || v === undefined) ? "" : v;
       const cls = ((c === "amount_match" || c === "vin_match") && v === "✗") ? "miss"
@@ -428,3 +448,4 @@ function colLabel(key) {
 
 refreshHints();
 health();
+_healthTimer = setInterval(health, 5000);  // 每 5 秒轮询，模型加载后自动停止

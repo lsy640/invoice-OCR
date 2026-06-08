@@ -20,6 +20,8 @@ import re
 from io import BytesIO
 from pathlib import Path
 
+import threading
+
 import requests
 from PIL import Image
 
@@ -44,8 +46,15 @@ class ParkingPipeline:
         self.obs_base = pk["obs_base"]
         self.max_long_side = int(self.cfg["data"]["max_image_long_side"])
         self.tol = float(self.cfg["evaluation"]["amount_tolerance"])
-        self.session = requests.Session()
+        self._local = threading.local()  # 线程安全：每线程独立 Session
         self.backend = backend or get_backend(self.cfg)
+
+    @property
+    def session(self) -> requests.Session:
+        """每线程独立的 requests.Session（线程安全）。"""
+        if not hasattr(self._local, "session"):
+            self._local.session = requests.Session()
+        return self._local.session
 
     # ── 图片加载（直链下载，无需 token）─────────────────────────────
     def _to_obs(self, url: str) -> str:
@@ -155,7 +164,8 @@ def main() -> None:
     args = ap.parse_args()
 
     if args.images_file:
-        images = [l.strip() for l in open(args.images_file, encoding="utf-8") if l.strip()]
+        with open(args.images_file, encoding="utf-8") as fh:
+            images = [l.strip() for l in fh if l.strip()]
     elif args.images:
         images = [x.strip() for x in args.images.split(",") if x.strip()]
     else:

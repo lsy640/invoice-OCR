@@ -44,7 +44,7 @@ inference:
 # ── Web 应用（前后端一体）─────────────────────────────────────────
 app:
   host: "0.0.0.0"
-  port: 7000
+  port: 8000
   max_batch_images: 3000              # 单次批量上限（图片张数/Excel行数）
   prefetch_workers: 8                 # 图片预加载线程数（CPU 下载/预处理与 GPU 推理并行）
 

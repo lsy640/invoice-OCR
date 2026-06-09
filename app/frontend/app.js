@@ -7,6 +7,7 @@ let lastResults = null;     // {task, columns, results}
 let lastAmountMismatch = null;  // {task, columns, results} for amount mismatch
 let lastVinMismatch = null;     // {task, columns, results} for VIN mismatch
 let lastParkingAnomaly = null; // {task, columns, results} for parking fee anomaly subset
+let _abortCtrl = null;          // AbortController for current recognition request
 
 const HINTS = {
   invoice: "每张图片/每行 Excel 各自识别一个实付金额；Excel 含 supply_money 列时自动比对并标红不一致。",
@@ -112,6 +113,8 @@ async function readSSE(response) {
         showProgress(parsed.current, parsed.total, parsed.stage);
       } else if (event === "done") {
         result = parsed;
+      } else if (event === "cancelled") {
+        throw new Error(`已停止（已完成 ${parsed.completed}/${parsed.total}）`);
       } else if (event === "error") {
         throw new Error(parsed.detail || "识别出错");
       }
@@ -155,8 +158,10 @@ $("#run").addEventListener("click", async () => {
   }
   setStatus("识别中…（首次会加载模型，可能较久）", true);
   showProgress(0, 0, "准备中");
+  $("#stop").classList.remove("hidden");
+  _abortCtrl = new AbortController();
   try {
-    const r = await fetch("/api/recognize", { method: "POST", body: fd });
+    const r = await fetch("/api/recognize", { method: "POST", body: fd, signal: _abortCtrl.signal });
     if (!r.ok) {
       const e = await r.json().catch(() => ({}));
       throw new Error(e.detail || r.statusText);
@@ -167,11 +172,22 @@ $("#run").addEventListener("click", async () => {
     renderAll(j);
     setStatus(`完成：${j.n} 条`);
   } catch (e) {
-    setStatus("出错：" + e.message);
+    if (e.name === "AbortError") {
+      setStatus("已停止识别");
+    } else {
+      setStatus("" + e.message);
+    }
   } finally {
     hideProgress();
     $("#run").disabled = false;
+    $("#stop").classList.add("hidden");
+    _abortCtrl = null;
   }
+});
+
+$("#stop").addEventListener("click", async () => {
+  try { await fetch("/api/cancel", { method: "POST" }); } catch {}
+  if (_abortCtrl) _abortCtrl.abort();
 });
 
 // 主结果表导出

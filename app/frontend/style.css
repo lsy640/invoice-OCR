@@ -22,6 +22,8 @@ main { max-width: 1100px; margin: 18px auto; padding: 0 16px; }
 textarea, input[type=file] { width: 100%; border: 1px solid #d6dbe3; border-radius: 8px; padding: 10px; font-size: 14px; }
 .actions { margin-top: 14px; }
 button.primary { background: #305496; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+button.danger { background: #e53935; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px; display: inline-block; }
+button.danger:hover { background: #c62828; }
 button.ghost { background: #fff; border: 1px solid #305496; color: #305496; padding: 10px 18px; border-radius: 8px; cursor: pointer; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 .status { color: #6b7686; font-size: 13px; }

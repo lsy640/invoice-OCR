@@ -43,6 +43,7 @@ app = FastAPI(title="GLM-OCR 票据/停车识别")
 # ── 惰性加载推理后端与两个管线（共用一个 backend）+ 推理串行锁 ────────
 _load_lock = threading.Lock()
 _infer_lock = threading.Lock()
+_cancel_event = threading.Event()
 _state: dict = {"backend": None, "invoice": None, "parking": None, "name": None}
 
 
@@ -127,6 +128,12 @@ def health():
     return {"status": "ok", "model_loaded": _state["invoice"] is not None, "backend": _state["name"]}
 
 
+@app.post("/api/cancel")
+def cancel():
+    _cancel_event.set()
+    return {"status": "cancelled"}
+
+
 @app.post("/api/recognize")
 def recognize(
     task: str = Form(...),
@@ -144,6 +151,7 @@ def recognize(
     excel_bytes = excel.file.read() if excel is not None else b""
 
     def generate_stream():
+        _cancel_event.clear()
         with _infer_lock:
             yield _sse_event("status", {"phase": "processing"})
 
@@ -170,6 +178,9 @@ def recognize(
                     total = len(imgs)
                     results = []
                     for i, img, err in _prefetch_load(imgs, pipe.load_image):
+                        if _cancel_event.is_set():
+                            yield _sse_event("cancelled", {"completed": len(results), "total": total})
+                            return
                         yield _sse_event("progress", {"current": i, "total": total})
                         lb = labels[i]
                         if err:
@@ -201,6 +212,9 @@ def recognize(
                         _ERR_REC = {"img_type": None, "dt": None, "vin": None, "plate": None,
                                     "amount": None, "lease_start": None, "lease_end": None, "raw": None}
                         for idx, im, err in _prefetch_load(raw_imgs, pipe.load_image):
+                            if _cancel_event.is_set():
+                                yield _sse_event("cancelled", {"completed": len(recs), "total": total_imgs})
+                                return
                             yield _sse_event("progress", {"current": idx, "total": total_imgs, "stage": "逐图识别"})
                             if err:
                                 pil_imgs.append(None)
@@ -213,6 +227,8 @@ def recognize(
                         yield _sse_event("progress", {"current": total_imgs, "total": total_imgs, "stage": "逐图识别"})
                         # refine
                         for im, r in zip(pil_imgs, recs):
+                            if _cancel_event.is_set():
+                                break
                             if im is not None and r.get("img_type") == "invoice" and not (r.get("lease_start") and r.get("lease_end")):
                                 pipe.refine_invoice(im, r)
                         from parking_aggregate import aggregate_group
@@ -226,6 +242,9 @@ def recognize(
                         total = len(rows)
                         results = []
                         for i, r in enumerate(rows):
+                            if _cancel_event.is_set():
+                                yield _sse_event("cancelled", {"completed": len(results), "total": total})
+                                return
                             yield _sse_event("progress", {"current": i, "total": total, "stage": r.get("workflow_no") or f"第{i+1}行"})
                             res = pipe.process(r["images"], cost=r["cost"], vin=r["vin"])
                             results.append(_flatten_parking(res, r.get("workflow_no") or f"第{i+1}行"))

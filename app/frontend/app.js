@@ -2,7 +2,7 @@
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
-let currentMode = "images";
+let currentMode = "excel";
 let lastResults = null;     // {task, columns, results}
 let lastAmountMismatch = null;  // {task, columns, results} for amount mismatch
 let lastVinMismatch = null;     // {task, columns, results} for VIN mismatch

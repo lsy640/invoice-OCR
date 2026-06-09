@@ -151,8 +151,8 @@ def recognize(
     excel_bytes = excel.file.read() if excel is not None else b""
 
     def generate_stream():
-        _cancel_event.clear()
         with _infer_lock:
+            _cancel_event.clear()
             yield _sse_event("status", {"phase": "processing"})
 
             try:

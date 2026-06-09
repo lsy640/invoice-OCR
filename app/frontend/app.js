@@ -68,21 +68,41 @@ function setStatus(msg, busy = false) {
 }
 
 // ── 进度条 ──────────────────────────────────────────────
+let _progressStart = 0;   // 识别开始时间戳(ms)
+
+function _fmtDuration(sec) {
+  sec = Math.round(sec);
+  if (sec < 60) return `${sec}秒`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s > 0 ? `${m}分${s}秒` : `${m}分`;
+}
+
 function showProgress(current, total, stage) {
   const wrap = $("#progress-wrap");
   const bar = $("#progress-bar");
   const text = $("#progress-text");
+  const timeEl = $("#progress-time");
   wrap.classList.remove("hidden");
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   bar.style.width = pct + "%";
   const stageStr = stage ? ` (${stage})` : "";
   text.textContent = `${current} / ${total}${stageStr}  ${pct}%`;
+
+  // 时间估算
+  const elapsed = (Date.now() - _progressStart) / 1000;
+  if (current > 0 && total > 0) {
+    const remain = (elapsed / current) * (total - current);
+    timeEl.textContent = `已用 ${_fmtDuration(elapsed)} · 预计还需 ${_fmtDuration(remain)}`;
+  } else {
+    timeEl.textContent = `已用 ${_fmtDuration(elapsed)}`;
+  }
 }
 
 function hideProgress() {
   $("#progress-wrap").classList.add("hidden");
   $("#progress-bar").style.width = "0%";
   $("#progress-text").textContent = "";
+  $("#progress-time").textContent = "";
 }
 
 // ── SSE 流式解析 ────────────────────────────────────────
@@ -157,6 +177,7 @@ $("#run").addEventListener("click", async () => {
     fd.append("excel", f);
   }
   setStatus("识别中…（首次会加载模型，可能较久）", true);
+  _progressStart = Date.now();
   showProgress(0, 0, "准备中");
   $("#stop").classList.remove("hidden");
   _abortCtrl = new AbortController();
@@ -170,7 +191,8 @@ $("#run").addEventListener("click", async () => {
     if (!j) throw new Error("未收到识别结果");
     lastResults = { task: j.task, columns: j.columns, results: j.results };
     renderAll(j);
-    setStatus(`完成：${j.n} 条`);
+    const totalSec = (Date.now() - _progressStart) / 1000;
+    setStatus(`完成：${j.n} 条，耗时 ${_fmtDuration(totalSec)}`);
   } catch (e) {
     if (e.name === "AbortError") {
       setStatus("已停止识别");

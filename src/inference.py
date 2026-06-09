@@ -1,17 +1,21 @@
-"""推理后端抽象：统一接口 ocr(image, instruction) -> str，可切换 transformers / MLX。
+"""推理后端抽象：统一接口 ocr(image, instruction) -> str，可切换 transformers / MLX / Ollama。
 
 - TransformersBackend：Windows 有 NVIDIA 用 CUDA，否则 CPU；Linux 同理。
 - MLXBackend：macOS（Apple M 系列）用 mlx-vlm 加速（尽力实现）。
+- OllamaBackend：通过 Ollama HTTP API 远程调用（支持任意部署了 GLM-OCR 的 Ollama 服务）。
 - get_backend(cfg)：按 config/env/平台自动选择，MLX 失败自动回退 transformers。
 
 供 InvoicePipeline / ParkingPipeline 共用同一个后端实例（模型只加载一次）。
 """
 from __future__ import annotations
 
+import base64
+import io
 import os
 import platform
 from abc import ABC, abstractmethod
 
+import requests
 from PIL import Image
 
 
@@ -131,6 +135,77 @@ class MLXBackend(InferenceBackend):
         return getattr(out, "text", None) or (out[0] if isinstance(out, (tuple, list)) else str(out))
 
 
+class OllamaBackend(InferenceBackend):
+    """通过 Ollama HTTP API 调用远程/本地部署的 GLM-OCR（GGUF 格式）。
+
+    无需本地加载模型权重，适用于：
+    - 本机无 GPU，通过远程 GPU 服务器推理
+    - 多客户端共享同一模型服务
+    - 使用 GGUF 量化模型降低显存占用
+    """
+    name = "ollama"
+
+    def __init__(self, base_url: str, model: str = "glm-ocr:latest",
+                 max_new_tokens: int = 256, timeout: int = 120):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.max_new_tokens = max_new_tokens
+        self.timeout = timeout
+        self._session = requests.Session()
+        # 验证连接
+        print(f"[backend:ollama] 连接 {self.base_url} (model={self.model}) ...", flush=True)
+        try:
+            resp = self._session.get(f"{self.base_url}/api/tags", timeout=10)
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            if self.model not in models:
+                # 尝试不带 tag 匹配
+                model_base = self.model.split(":")[0]
+                found = [m for m in models if m.startswith(model_base)]
+                if found:
+                    self.model = found[0]
+                    print(f"[backend:ollama] 模型名自动匹配: {self.model}", flush=True)
+                else:
+                    print(f"[backend:ollama] ⚠ 模型 {self.model} 未在服务器找到，"
+                          f"可用模型: {models}", flush=True)
+            print(f"[backend:ollama] 已连接，使用模型: {self.model}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"[backend:ollama] ⚠ 连接检查失败({type(e).__name__}: {e})，"
+                  f"将在首次推理时重试", flush=True)
+
+    @staticmethod
+    def _image_to_base64(image: Image.Image) -> str:
+        """PIL Image → base64 编码字符串（Ollama API 要求）。"""
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    def ocr(self, image: Image.Image, instruction: str) -> str:
+        img_b64 = self._image_to_base64(image)
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": instruction,
+                    "images": [img_b64],
+                }
+            ],
+            "stream": False,
+            "options": {
+                "num_predict": self.max_new_tokens,
+            },
+        }
+        resp = self._session.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("message", {}).get("content", "")
+
+
 def _mlx_available() -> bool:
     try:
         import mlx_vlm  # noqa: F401
@@ -144,6 +219,7 @@ def get_backend(cfg: dict, override: str | None = None) -> InferenceBackend:
 
     选择优先级：override > 环境变量 INFERENCE_BACKEND > config.inference.backend。
     auto = Darwin+arm64+mlx可用 → mlx；否则 transformers（CUDA 可用则 GPU，否则 CPU）。
+    ollama = 通过 Ollama HTTP API 远程调用（不加载本地模型）。
     """
     inf = cfg.get("inference", {})
     repo = cfg["models"]["glm-ocr"]["repo"]
@@ -152,6 +228,18 @@ def get_backend(cfg: dict, override: str | None = None) -> InferenceBackend:
     backend = (override or os.environ.get("INFERENCE_BACKEND") or inf.get("backend", "auto")).lower()
     device = os.environ.get("INFERENCE_DEVICE") or inf.get("device", "auto")
 
+    # ── Ollama API 后端 ──────────────────────────────────────────
+    if backend == "ollama":
+        ollama_cfg = inf.get("ollama", {})
+        base_url = (os.environ.get("OLLAMA_BASE_URL")
+                    or ollama_cfg.get("base_url", "https://ollama.cacxtravel.com"))
+        model = (os.environ.get("OLLAMA_MODEL")
+                 or ollama_cfg.get("model", "glm-ocr:latest"))
+        timeout = int(ollama_cfg.get("timeout", 120))
+        return OllamaBackend(base_url=base_url, model=model,
+                             max_new_tokens=max_new, timeout=timeout)
+
+    # ── 本地后端自动选择 ─────────────────────────────────────────
     if backend == "auto":
         is_mac_arm = platform.system() == "Darwin" and platform.machine() in ("arm64", "aarch64")
         backend = "mlx" if (is_mac_arm and _mlx_available()) else "transformers"

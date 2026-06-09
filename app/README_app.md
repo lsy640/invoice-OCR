@@ -8,7 +8,7 @@
 输入方式：① 上传图片 ② 图片直链 URL ③ 上传 Excel（图片 URL 为直链）。支持单条/批量；
 **Excel 含原始金额(supply_money/cost)时，识别值与原值不一致的行自动标红提示。**
 
-后端跨平台：**Windows 有 NVIDIA 用 GPU、否则 CPU；macOS（M 系列）用 MLX 加速（支持 4-bit 量化）。**
+后端跨平台：**Windows 有 NVIDIA 用 GPU、否则 CPU；macOS（M 系列）用 MLX 加速（支持 4-bit 量化）；支持 Ollama API 远程调用（无需本地 GPU）。**
 
 ---
 
@@ -20,6 +20,7 @@
 | Windows + NVIDIA      | Docker + GPU | 装 Docker Desktop(WSL2) + NVIDIA Container Toolkit，取消 compose 中 `deploy` 注释后 `docker compose up --build` |
 | Windows 无 GPU / Linux | Docker(CPU)  | `cd OCR/app/docker && docker compose up --build`                                                        |
 | macOS (M1/M2/M3…)     | 原生 + MLX     | `bash app/scripts/run_macos_mlx.sh`（**不可用 Docker**，容器访问不到 Metal/MLX）                                    |
+| 任意平台（无 GPU）           | Ollama API   | 设 `INFERENCE_BACKEND=ollama`，通过远程 Ollama 服务推理（不加载本地模型）                                                |
 | 开发自测(任意)              | 本地直跑         | `bash app/scripts/run_local.sh`                                                                         |
 
 
@@ -100,7 +101,42 @@ py -3.12 -m venv .venv-app
 
 ---
 
-## 五、性能优化
+## 五、Ollama API 远程推理（无需本地 GPU）
+
+适用于本机无 GPU 或希望多客户端共享同一模型服务的场景。需要一台已部署 Ollama + GLM-OCR 的服务器。
+
+### 方式 1：修改配置文件
+
+```yaml
+# config.yaml
+inference:
+  backend: "ollama"
+  ollama:
+    base_url: "https://ollama.cacxtravel.com"   # Ollama 服务地址
+    model: "glm-ocr:latest"                     # 模型名称
+    timeout: 120                                # 单次推理超时（秒）
+```
+
+### 方式 2：环境变量（优先级更高，适合 Docker）
+
+```bash
+# 本地启动
+INFERENCE_BACKEND=ollama OLLAMA_BASE_URL=https://ollama.cacxtravel.com python app/backend/server.py
+
+# Docker 启动
+docker compose up --build  # 需先在 docker-compose.yml 中取消 OLLAMA 相关环境变量注释
+```
+
+### Docker + Ollama（轻量镜像，无需 GPU）
+
+使用 Ollama 后端时，容器不加载本地模型，**无需 GPU、无需下载 1.8GB 权重**，启动秒级。
+在 `docker-compose.yml` 中将 `INFERENCE_BACKEND` 改为 `ollama` 并取消 `OLLAMA_BASE_URL` 注释即可。
+
+> Ollama 服务可通过 `https://ollama.cacxtravel.com/api/tags` 查看已部署的模型列表。
+
+---
+
+## 六、性能优化
 
 ### 图片分辨率（影响最大）
 
@@ -163,7 +199,7 @@ nvidia-smi -g 0 -dm 1    # 切 TCC
 
 ---
 
-## 六、使用说明
+## 七、使用说明
 
 1. 顶部选择功能（发票实付金额 / 停车信息）。
 2. 选输入方式并提供数据 → 点「开始识别」→ 进度条实时显示，结果展示。
@@ -187,12 +223,12 @@ nvidia-smi -g 0 -dm 1    # 切 TCC
 
 ---
 
-## 七、API（前端即调用以下接口）
+## 八、API（前端即调用以下接口）
 
 
 | 方法/路径                 | 说明                                                                                 |
 | --------------------- | ---------------------------------------------------------------------------------- |
-| `GET /api/health`     | 健康检查 + 当前后端(transformers/mlx)                                                      |
+| `GET /api/health`     | 健康检查 + 当前后端(transformers/mlx/ollama)                                                |
 | `POST /api/recognize` | multipart：`task=invoice|parking`、`mode=images|urls|excel`、`files[]`/`urls`/`excel`；返回 SSE 流（progress→done） |
 | `POST /api/export`    | JSON `{task, results, columns}` → 返回高亮 .xlsx（支持自定义列，异常表导出也使用此接口）                   |
 | `GET /`               | 前端页面                                                                               |
@@ -206,18 +242,22 @@ curl -F task=invoice -F mode=urls -F 'urls=https://.../a.png' http://localhost:8
 
 ---
 
-## 八、配置（`config.yaml`）
+## 九、配置（`config.yaml`）
 
 ```yaml
 data:
   max_image_long_side: 1280  # 图片长边上限（影响推理速度，OCR 任务 1280 足够）
 
 inference:
-  backend: auto        # auto|transformers|mlx（环境变量 INFERENCE_BACKEND 可覆盖）
+  backend: auto        # auto|transformers|mlx|ollama（环境变量 INFERENCE_BACKEND 可覆盖）
   device:  auto        # transformers 设备 auto|cuda|cpu（INFERENCE_DEVICE 可覆盖）
   quantize: null       # null|"4bit"|"8bit"（CUDA + bitsandbytes）
   torch_compile: false # true 启用编译优化（首次慢，后续快 20-40%）
   mlx_repo: "./models/GLM-OCR-mlx-4bit"  # macOS MLX 4-bit 量化权重路径
+  ollama:              # backend 设为 "ollama" 时生效
+    base_url: "https://ollama.cacxtravel.com"
+    model: "glm-ocr:latest"
+    timeout: 120
 
 app:
   host: 0.0.0.0
@@ -231,7 +271,7 @@ models:
 
 ---
 
-## 九、架构
+## 十、架构
 
 ```
 前端(静态 HTML/JS)  ──HTTP/SSE──>  FastAPI(app/backend/server.py)
@@ -240,14 +280,15 @@ models:
                                        ├─ ParkingPipeline   逐图KIE+发票二次OCR+聚合
                                        └─ InferenceBackend
                                             ├─ TransformersBackend  (CUDA/CPU, SDPA, 4bit/8bit量化)
-                                            └─ MLXBackend           (macOS Apple Silicon, 4-bit量化)
+                                            ├─ MLXBackend           (macOS Apple Silicon, 4-bit量化)
+                                            └─ OllamaBackend        (HTTP API, 远程/本地 Ollama 服务)
 ```
 
 前端结果展示层级：概览条 → 异常面板(金额不匹配/车架号不匹配/费用异常) → 全部结果表，各层均可独立导出 Excel。
 
 推理逻辑/解析/聚合与命令行批处理(`src/parking_*`)**同一套代码**（`record_from_kie`/`aggregate_group`）。
 
-## 十、排错
+## 十一、排错
 
 - **首次很慢/卡住**：在下载权重(~1.8GB)或 CPU 加载，耐心等；`GET /api/health` 始终可用。
 - **GPU 没用上**：确认 NVIDIA 驱动 + Container Toolkit，且 compose 的 `deploy` 段已启用；日志看是否 `device=cuda`。
@@ -257,3 +298,5 @@ models:
 - **mac 上 MLX 失败**：见第三节，回退 transformers-CPU。
 - **mac 推理慢**：确认已使用 4-bit 量化权重（见第三节），量化后推理速度提升 2-3x。
 - **GPU 利用率低**：自回归生成本身 GPU 利用率不高属正常；确认没有其他程序（如 LM Studio）占用显存。
+- **Ollama 连接失败**：确认 `base_url` 可访问（浏览器打开 `{base_url}/api/tags` 查看模型列表）；检查网络/VPN。
+- **Ollama 推理超时**：调大 `ollama.timeout`（默认 120 秒）；批量图片数多时 Ollama 服务可能排队。

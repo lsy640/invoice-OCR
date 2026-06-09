@@ -12,8 +12,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - INFERENCE_BACKEND=auto       # auto/transformers；GPU 与否由容器内 torch 自动判断
+      - INFERENCE_BACKEND=auto       # auto/transformers/ollama；GPU 与否由容器内 torch 自动判断
       - HF_HOME=/models
+      # ── 使用 Ollama API 时设 INFERENCE_BACKEND=ollama 并配置以下两项 ──
+      # - OLLAMA_BASE_URL=https://ollama.cacxtravel.com
+      # - OLLAMA_MODEL=glm-ocr:latest
     volumes:
       - glmocr-models:/models        # HF 权重缓存（持久化，避免每次重下）
     restart: unless-stopped
